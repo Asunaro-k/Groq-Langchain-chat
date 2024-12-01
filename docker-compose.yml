@@ -1,0 +1,26 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./app:/app/
+    #environment:
+      #- NVIDIA_VISIBLE_DEVICES=all
+      #- PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,garbage_collection_threshold:0.8
+    env_file:
+      - .env
+    restart: unless-stopped
+    working_dir: /app
+    tty: true
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1 # GPUを指定
+    #           capabilities: [gpu]
+    # runtime: nvidia  # NVIDIAランタイムの設定
+    #command: streamlit run app.py
+    #command: streamlit run app.py & sleep 3 && npx localtunnel --port 8501
+  
