@@ -158,14 +158,21 @@ def settings_page():
         value=config['temperature'], 
         step=0.1
     )
-    
+
+    if 'system_prompt' not in st.session_state:
+        st.session_state.system_prompt=config['system_prompt']
+
     # System Prompt
     st.header("システムプロンプト")
-    system_prompt = st.text_area(
+    new_system_prompt = st.text_area(
         "AIの基本的な振る舞いを定義", 
-        value=config['system_prompt'], 
+        value=st.session_state.system_prompt, 
         height=200
     )
+
+    if st.button("プロンプトを更新"):
+            st.session_state.system_prompt = new_system_prompt
+            st.success("システムプロンプトが更新されました！")
     
     # Advanced Settings
     st.header("詳細設定")
@@ -191,6 +198,10 @@ def settings_page():
     }
     
     selected_preset = st.selectbox("プリセットの役割", list(preset_roles.keys()))
+    if st.button("選択した役割を適用"):
+            st.session_state.system_prompt = preset_roles[selected_preset]
+            st.rerun()
+            st.success(f"{selected_preset}の役割が適用されました！")
 
     # 検索機能の設定を追加
     st.header("検索設定")
@@ -203,7 +214,7 @@ def settings_page():
         config.update({
             'model': selected_model,
             'temperature': temperature,
-            'system_prompt': system_prompt or preset_roles[selected_preset],
+            'system_prompt': st.session_state.system_prompt,
             'max_tokens': max_tokens,
             'vision_enabled': vision_enabled,
             'search_enabled': search_enabled
