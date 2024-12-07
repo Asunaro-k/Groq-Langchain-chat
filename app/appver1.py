@@ -1,9 +1,13 @@
 import streamlit as st
+
+#langchain
 from langchain_groq import ChatGroq
 from langchain.schema import HumanMessage, SystemMessage, AIMessage
 from langchain.memory import ConversationBufferMemory
 from langchain_community.utilities import DuckDuckGoSearchAPIWrapper
 from langchain.prompts import PromptTemplate
+
+#webページの認識やファイル操作もろもろ
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -13,14 +17,13 @@ import json
 from PIL import Image
 import io
 
-# 追加の必要なインポート
+# AI用
 import torch
 from transformers import pipeline
 
-# グローバル変数としてキャプションモデルを初期化
+# 画像キャプションモデルの初期化
 @st.cache_resource
 def load_caption_model():
-    # 利用可能なデバイスを動的に判定
     device = 0 if torch.cuda.is_available() else -1
     caption_model = pipeline(
         "image-to-text",
@@ -34,23 +37,79 @@ def load_caption_model():
 # 画像をキャプション化する関数
 def generate_image_caption(image_file):
     try:
-        # キャプションモデルの取得
         caption_model = st.session_state.image_captioner
-        
-        # 画像をPILで開く
         image = Image.open(image_file)
-        
-        # キャプション生成
         captions = caption_model(image)
-        
-        # キャプションの取得（通常は最初の結果を使用）
         caption = captions[0]['generated_text'] if captions else "画像の説明を生成できませんでした。"
-        
         return caption
     except Exception as e:
         return f"画像キャプションの生成中にエラーが発生しました: {str(e)}"
 
-# Configuration Management
+# 検索クエリ生成のためのプロンプト
+QUERY_PROMPT = """
+あなたは与えられた質問に対して、以下の3つの判断を行うアシスタントです：
+1. 最新の情報が必要かどうか
+2. URLが含まれているかどうか
+3. 通常の会話で対応可能かどうか
+
+質問: {question}
+
+以下の形式で応答してください：
+NEEDS_SEARCH: [true/false] - 最新の情報が必要な場合はtrue
+HAS_URL: [true/false] - URLが含まれている場合はtrue
+SEARCH_QUERY: [検索クエリ] - NEEDS_SEARCHがtrueの場合のみ必要な検索クエリを書いてください
+"""
+
+# URLを検出する関数
+def extract_urls(text):
+    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    return re.findall(url_pattern, text)
+
+# Webページの内容を取得する関数
+def get_webpage_content(url):
+    try:
+        response = requests.get(url, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        for script in soup(["script", "style"]):
+            script.decompose()
+        text = soup.get_text()
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = ' '.join(chunk for chunk in chunks if chunk)
+        return text[:5000]
+    except Exception as e:
+        return f"Webページの取得中にエラーが発生しました: {str(e)}"
+
+# Web検索関数の追加
+async def perform_web_search(query_chain, search_wrapper, prompt):
+    try:
+        # 質問の分析
+        analysis = await query_chain.ainvoke(prompt)
+        content = analysis.content if hasattr(analysis, 'content') else str(analysis)
+        
+        needs_search = "NEEDS_SEARCH: true" in content
+        has_url = "HAS_URL: true" in content
+
+        # URLが含まれている場合の処理
+        if has_url:
+            urls = extract_urls(prompt)
+            if urls:
+                webpage_content = get_webpage_content(urls[0])
+                return f"URLコンテンツ: {webpage_content}"
+
+        # Web検索が必要な場合
+        if needs_search:
+            st.markdown("""DuckDuckGoで検索中...""")
+            search_query = re.search(r'SEARCH_QUERY: (.*)', content)
+            if search_query:
+                search_results = search_wrapper.run(search_query.group(1))
+                return f"検索結果: {search_results}"
+
+        return None
+    except Exception as e:
+        return f"検索中にエラーが発生しました: {str(e)}"
+
+# 設定ファイルを読み込みもしくは直書き
 CONFIG_FILE = 'app_config.json'
 
 def load_config():
@@ -64,24 +123,18 @@ def load_config():
             'temperature': 0.7,
             'system_prompt': 'あなたは親切で賢明な、多様な質問に答えられる優秀なアシスタントです。',
             'max_tokens': 4096,
-            'vision_enabled': True
+            'vision_enabled': True,
+            'search_enabled': True
         }
-
+    
 def save_config(config):
-    """Save configuration to a JSON file"""
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=4)
 
-# URL Detection Function
-def extract_urls(text):
-    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
-    return re.findall(url_pattern, text)
-
-# Settings Page
+# 設定ページ
 def settings_page():
     st.title("アプリケーション設定")
     
-    # Load current configuration
     config = load_config()
     
     # Model Selection
@@ -133,83 +186,117 @@ def settings_page():
     preset_roles = {
         "デフォルト": "あなたは親切で賢明な、多様な質問に答えられる優秀なアシスタントです。",
         "人生相談": "あなたは共感力があり、深い洞察力を持つ人生相談のスペシャリストです。",
-        "プログラミング講師": "あなたは経験豊富なプログラミング講師です。",
-        "創作アシスタント": "あなたは創造性豊かな作家兼アイデアジェネレーターです。"
+        "うるさい関西人": "あなたはやたらうるさい関西人です。",
+        "胡散臭い中国人": "あなたは胡散臭い片言の日本語を話す中国人です。"
     }
     
     selected_preset = st.selectbox("プリセットの役割", list(preset_roles.keys()))
+
+    # 検索機能の設定を追加
+    st.header("検索設定")
+    search_enabled = st.toggle(
+        "Web検索機能を有効化", 
+        value=config.get('search_enabled', True)
+    )
     
     if st.button("設定を保存"):
-        # Update configuration
         config.update({
             'model': selected_model,
             'temperature': temperature,
             'system_prompt': system_prompt or preset_roles[selected_preset],
             'max_tokens': max_tokens,
-            'vision_enabled': vision_enabled
+            'vision_enabled': vision_enabled,
+            'search_enabled': search_enabled
         })
         
         save_config(config)
         st.success("設定が正常に保存されました！")
     
     return config
+    
 
-# Main Chat Application
+# チャットページ
 def chat_page(config):
     st.title("Enhanced Multimodal Chat")
 
-    # Initialize session state
+    # セッション状態の初期化
     if 'messages' not in st.session_state:
         st.session_state.messages = []
 
-    # LLM Configuration
+    # モデルとラッパーの初期化
     st.session_state.llm = ChatGroq(
         model_name=config['model'],
         temperature=config['temperature']
     )
-
-    # 画像キャプションモデルの初期化
+    
+	# 既存のメッセージを表示
+    for message in st.session_state.messages:
+        with st.chat_message(message['role']):
+            st.markdown(message['content'])
+    
+	# 画像キャプションモデルの初期化
     if 'image_captioner' not in st.session_state:
         st.session_state.image_captioner = load_caption_model()
 
-    # Image Upload
+    # DuckDuckGo検索の初期化
+    search_wrapper = DuckDuckGoSearchAPIWrapper(
+        backend="api", #'api': APIモード（通常使用するモード）。'html': HTMLモード（HTMLパーシングによる検索）。'lite': 軽量モード（低リソースモード）。
+        max_results=5, #取得する検索結果の最大件数。
+        region="jp-jp", #地域コード 'wt-wt'（全世界）
+        safesearch="off", #セーフサーチモード
+        source="text", #'text': テキスト検索。'news': ニュース検索。
+        time="w" #'d': 過去1日。'w': 過去1週間。'm': 過去1か月。'y': 過去1年。
+	)
+
+    # 質問分析のためのチェーン
+    query_prompt = PromptTemplate(template=QUERY_PROMPT, input_variables=["question"])
+    query_chain = query_prompt | st.session_state.llm
+    
+	# 画像アップロード
     if config.get('vision_enabled', True):
-        uploaded_image = st.file_uploader("画像をアップロード", type=['png', 'jpg', 'jpeg'])
+        with st.sidebar:
+            uploaded_image = st.file_uploader("画像をアップロード", type=['png', 'jpg', 'jpeg'])
         
         if uploaded_image is not None:
-            # Display the uploaded image
             st.image(uploaded_image, caption='アップロードされた画像')
-            
-            # Generate image caption
             caption = generate_image_caption(uploaded_image)
             
-            # Add image caption to messages
             st.session_state.messages.append({
                 "role": "system", 
-                "content": f"画像キャプション: {caption}"
+                "content": f"画像の説明: {caption}"
             })
             
-            # Display the generated caption
-            st.write("画像キャプション:", caption)
+            st.write("画像の説明:", caption)
 
-    # Chat input
+    # チャット入力
     prompt = st.chat_input("メッセージを入力")
     
     if prompt:
-        # Add user message to chat history
+        # メッセージ履歴に追加
         st.session_state.messages.append({
             "role": "user", 
             "content": prompt
         })
 
-        # Display user message
+        # ユーザーメッセージの表示
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Generate response
+        # Web検索の実行（有効な場合）
+        search_result = None
+        if config.get('search_enabled', True):
+            search_result = asyncio.run(perform_web_search(query_chain, search_wrapper, prompt))
+
+        # 応答の生成
         with st.chat_message("assistant"):
-            # Prepare messages for the LLM
+            # メッセージの準備
             llm_messages = [SystemMessage(content=config['system_prompt'])]
+            
+            # 検索結果があれば追加
+            if search_result:
+                llm_messages.append(SystemMessage(content=search_result))
+            
+            # 会話履歴の追加
             for msg in st.session_state.messages:
                 if msg['role'] == 'user':
                     llm_messages.append(HumanMessage(content=msg['content']))
@@ -218,38 +305,40 @@ def chat_page(config):
                 elif msg['role'] == 'assistant':
                     llm_messages.append(AIMessage(content=msg['content']))
 
-            # Generate response
+            # 応答の生成
             response = st.session_state.llm.invoke(llm_messages)
             st.markdown(response.content)
 
-        # Add assistant response to chat history
+        # アシスタントの応答を履歴に追加
         st.session_state.messages.append({
             "role": "assistant", 
             "content": response.content
         })
 
 def main():
-    # Streamlit page configuration
-    st.set_page_config(
-        page_title="Enhanced Multimodal Chat", 
-        page_icon=":robot:", 
-        layout="wide"
-    )
+	# Streamlitアプリの設定
+	st.set_page_config(
+		page_title="Enhanced Groq LangChain Chat",
+		page_icon=":speech_balloon:",
+		layout="wide"
+	)
 
-    # Create a sidebar for navigation
-    page = st.sidebar.radio("ナビゲーション", 
-        ["チャット", "設定"], 
-        index=0
-    )
+	page = "チャット"
 
-    # Load configuration
-    config = load_config()
+	# サイドバーで切り替えボタン
+	page = st.sidebar.radio("ナビゲーション", 
+		["チャット", "設定"], 
+		index=0
+	)
 
-    # Render appropriate page
-    if page == "チャット":
-        chat_page(config)
-    else:
-        config = settings_page()
+	# Load configuration
+	config = load_config()
+
+	# Render appropriate page
+	if page == "チャット":
+		chat_page(config)
+	else:
+		config = settings_page()
 
 if __name__ == "__main__":
-    main()
+	main()
