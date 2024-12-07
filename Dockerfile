@@ -1,10 +1,10 @@
-# Use the official Python image from the Docker Hub
-FROM langchain/langchain
+#FROM langchain/langchain
 #FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+FROM python:3.11 
 
 #ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda-12.1/lib64:$LD_LIBRARY_PATH
 
-RUN apt-get update && apt-get install -y libffi-dev libnacl-dev
+#RUN apt-get update && apt-get install -y libffi-dev libnacl-dev
 # RUN apt-get update && apt-get install -y libffi-dev libnacl-dev 
     #libnvrtc12 \
     #cuda-toolkit-11-8 \
@@ -27,12 +27,11 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 WORKDIR /app
 # Dockerイメージにsd_embedディレクトリをコピー
 
-RUN apt-get update && apt-get install -y cmake build-essential libboost-dev
-RUN pip install --upgrade setuptools wheel
-RUN pip install pyarrow --upgrade --prefer-binary
+#RUN apt-get update && apt-get install -y cmake build-essential libboost-dev
+#RUN pip install --upgrade setuptools wheel
+#RUN pip install pyarrow --upgrade --prefer-binary
 RUN pip install streamlit
 RUN python3 -m pip install beautifulsoup4
-RUN python3 -m pip install wikipedia
 RUN python3 -m pip install langgraph langsmith
 RUN python3 -m pip install langchain-groq
 RUN python3 -m pip install Pillow
