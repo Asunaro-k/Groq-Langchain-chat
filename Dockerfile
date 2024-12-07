@@ -30,7 +30,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y cmake build-essential libboost-dev
 RUN pip install --upgrade setuptools wheel
 RUN pip install pyarrow --upgrade --prefer-binary
-RUN pip install streamlit==1.24.1
+RUN pip install streamlit
 RUN python3 -m pip install beautifulsoup4
 RUN python3 -m pip install wikipedia
 RUN python3 -m pip install langgraph langsmith
@@ -39,7 +39,11 @@ RUN python3 -m pip install Pillow
 RUN python3 -m pip install aiohttp
 RUN python3 -m pip install langchain_google_community
 RUN python3 -m pip install -U duckduckgo-search
+RUN python3 -m pip install torch==2.1.0
+RUN python3 -m pip install torchvision==0.16.0
+RUN python3 -m pip install torchaudio==2.1.0
+RUN python3 -m pip install transformers==4.46.2
 # ポートの指定
 EXPOSE 8501
 # Streamlitの起動
-ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=8501","--server.address=0.0.0.0" ]
+ENTRYPOINT ["streamlit", "run", "appver1.py", "--server.port=8501","--server.address=0.0.0.0" ]
