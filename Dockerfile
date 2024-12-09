@@ -10,7 +10,7 @@ WORKDIR /app
 
 # 依存関係のインストール
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
 # ポートの指定
 EXPOSE 8501
